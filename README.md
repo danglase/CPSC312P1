@@ -1,7 +1,8 @@
 # CPSC 312 P1 : Dungeon Adventure
 
 Authors: Dan Glaser, Feng-Yi Bian, James Wang
-What is the problem?
+
+# What is the problem?
 
 We will use haskell to implement a text based adventure/dungeon game that will allow users to navigate the world, interact with objects, gather items, and use the items to alter the experience.
 
