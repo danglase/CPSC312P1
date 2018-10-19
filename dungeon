@@ -1,1 +1,623 @@
--- Start of the project --
+{-
+  In this game, the player will traverse a fictional location called the "dungeon", with the goal of reaching the exit
+  alive.
+
+	Along the way, the player will encounter obstacles--traps, monsters, dangerous event etc. which will hinder the
+	player's progress. The player can also find items and interactions which assists the escape.
+
+	The player's physical condition will be represented by values such as "Health". If the health status reaches 0, the
+	player will lose and be forced to restart.
+
+	Harmful events such as falling into a trap, being attacked by monster, etc. will reduce the player's health, while
+	finding certain objects will be able to prevent these events from occurring.
+
+	The dungeon is divided into rooms, and the player will navigate among them to find the exit. When entering a new room,
+	the player may encounter the dangerous or helpful events described above. The player will not be aware of the contents
+	of each room before entering them, baring exceptional events which may reveal unvisited rooms.
+
+	When encountering an event, the player may choose from a finite number of different possible actions in response, each
+	with distinct outcome which will affect the player's health and possibly add/remove items from the player's inventory.
+
+	To begin the game, you must first load the game ( :load Dungeon.hs ), then enter the dungeon by typing enterDungeon.
+
+	Good luck!
+-}
+
+module Dungeon where
+
+import System.IO
+import Text.Read (readMaybe)
+import Data.Maybe (fromMaybe)
+
+-- return True if input contains 'y' or 'Y'
+saidYes speech = (elem 'y' speech) || (elem 'Y' speech)
+
+-- ask the user to enter an integer, if failed, retry until success; 
+-- returns the input integer
+lp_reqInt = do
+  input1 <- getLine
+  case (readMaybe input1 :: Maybe Int) of
+    Nothing -> do
+      putStrLn "(integer input required, please try again)"
+      lp_reqInt
+    Just n -> return n
+
+-- ask the user to enter an integer (in a range defined by inclusive min. and max.)
+-- if failed, retry until success; returns the input integer
+lp_reqIntR imin imax = do
+  input1 <- getLine
+  case (readMaybe input1 :: Maybe Int) of
+    Nothing -> do
+      putStrLn "(integer input required, please try again)"
+      lp_reqIntR imin imax
+    Just n -> if ((n<imin) || (n>imax)) 
+              then do
+                putStrLn ("(input must be within "++show imin++"~"++show imax++")")
+                lp_reqIntR imin imax
+              else return n
+
+-- ask the user to enter a string, if string matches a certain condition,
+-- return the input string, if not, return an error message and ask again
+lp_reqStrCond prompt errMsg cond = do
+  if (prompt=="") then putStr "" else putStrLn prompt
+  input1 <- getLine
+  case (cond input1) of
+    False -> do
+      putStrLn errMsg
+      lp_reqStrCond prompt errMsg cond
+    True -> return input1
+
+-- find an element from a list that fits a condition. (NOT ROBUST, TARGET MUST EXIST IN LIST)
+findElem cond (h:t) =
+  if (cond h) then h else findElem cond t
+
+-- remove the first conditionally specified item from a given list, returning the rest
+remove1Elem _ [] = []
+remove1Elem cond (h:t) = 
+  if (cond h) 
+  then t
+  else h : (remove1Elem cond t)
+
+-- *** Main code ***
+d1 = Dungeon
+  {-
+  Guide:
+
+  To start the game, you must load Dungeon.hs into ghci ( :load Dungeon.hs ). Once the program is loaded, you can then
+  enter the dungeon by typing enterDungeon.
+
+  You start in Cell B with 100 health. If the health drops to 0 or below, then the game is over and you must restart.
+
+  Steps to escape (the correct way):
+    Cell Block:
+      Once you wake up, check your items and use the Cell B key to unlock the cell. You can now leave the cell and go
+      into Cell D where you can pick up a wooden stick. Go back to the Cell Block and use the wooden stick to get the
+      key from Cell A. Use the key to unlock the Cell Block and you can now enter the hall way.
+
+    Office:
+      Once you enter the office, inspect the certificates and notice that we are in Dr. Stephen Goldstein's dungeon. Now
+      look at the book shelf and you'll notice a book by Goldstein with 4 digits in it. This is the pincode for the
+      laboratory (4-3-7-8). If you open the top drawer of the desk, you'll be locked in and have to escape. To escape,
+      look at the paintings. These 3 paintings each have a main colour (red, yellow, blue). Open the bottom drawer and
+      connect the red wire, then yellow wire, then blue wire. You'll now have the key to exit the office.
+
+    Kitchen:
+      As you enter the kitchen, you'll want to open the fridge and get a piece of rotten meat for later. After this,
+      we'll examine the clock and notice that the time is stuck at 10:10. We should now enter the freezer and look on
+      the floor. You'll find a metal bar that you will need to use in the freezer to prop open the door. After that,
+      examine the control panel. We'll want to make sure the first and third switch are turned on and the second and
+      fourth are turned off (this is from the clock, 1010). Once the lights and power are on, you'll find a metal piece
+      on the ground. Leave the freezer and open the box in the oven using the magnetic key. You'll find a pistol which
+      will be useful in the laboratory. Leave the kitchen and throw the rotten meat to escape the dog.
+
+    Laboratory:
+      Approach the door and enter the pincode from the office (4-3-7-8). Enter the laboratory and use the pistol to get
+      the key from the doctor. Use the key to escape the laboratory and you are free!
+  -}
+
+  (Eli 10 100 [(Item "Cell B Key" "The person who locked you here must have forgotten to take the key with them. You use it to unlock the cell." 10 [(DRooms 10 11)])])
+  [
+    -- Rooms for the Cell Block
+        -- Cell B upon awakening
+        (Room 10 "\nAs you wake up and open your eyes, you realize that you are in an unfamilar room.\nIt appears as though someone has placed you in a cell and locked the door.\nIt would be best to escape before they return." []),
+        -- Cell B after unlocked
+        (Room 11 "The door to leave Cell B is open. There is nothing left in the cell."
+            [
+            (Option "Leave cell." "You exit Cell B." [(MoveTo 20)])
+            ]),
+        -- Cell block before unlock
+        (Room 20 "As you leave your cell, you notice 3 more cells similar to yours, however, all of them are empty.\nIt looks like your cell is labeled 'Cell B'.\nCell A appears to be locked, but you see a shiny object at the back of the cell.\nCell C and D are both open. The door to leave this Cell Block is currently closed and locked."
+            [
+            (Option "Enter your original cell, Cell B." "You move back into Cell B." [(MoveTo 10)]),
+            (Option "Enter Cell C." "You enter Cell C." [(MoveTo 21)]),
+            (Option "Enter Cell D." "You enter Cell D." [(MoveTo 22)])
+            ]),
+        -- Cell C
+        (Room 21 "The cell appears to be empty. However, you see a hole in the wall which must have been made by a previous prisoner."
+            [
+            (Option "Reach into the wall to see where it leads" "Something in the wall attacks you. It feels like a spider bit you." [(DHealth 30)]),
+            (Option "Leave cell." "You exit the cell." [(MoveTo 20)])
+            ]),
+        -- Cell D
+        (Room 22 "It looks like the cell was badly damaged from the previous prisoner.\nThe wooden chair is broken, the bed is torn into pieces, and there is rotten food all over the floor."
+            [
+            (Option "Pick up wooden stick from the broken chair." "You pick up the stick."
+                [
+                (NewItem (Item "Wooden Stick" "You use the stick to reach into Cell A and drag the shiny object along the floor." 20
+                    [
+                    (NewItem (Item "Cell Block Key" "You use the key to unlcok the Cell Block." 20 [(DRooms 20 24)])),
+                    (RemoveItem "Wooden Stick")
+                    ])),
+                (MoveTo 23)
+                ]),
+            (Option "Leave cell." "You exit the cell." [(MoveTo 20)])
+            ]),
+        (Room 23 "It looks like the cell was badly damaged from the previous prisoner.\nThe wooden chair is broken, the bed is torn into pieces, and there is rotten food all over the floor.\nIt doesn't look like there is anything left in this cell worth gathering."
+            [
+            (Option "Leave cell." "You exit the cell." [(MoveTo 20)])
+            ]),
+        -- Cell block after unlock
+        (Room 24 "The door to leave the Cell Block is open. 3 of the cells are still open, and all are empty.\nCell A is locked, Cell B is the cell you awoke in, Cell C and D are both open."
+            [
+            (Option "Enter your original cell, Cell B." "You move back into Cell B" [(MoveTo 10)]),
+            (Option "Enter Cell C." "You enter Cell C." [(MoveTo 21)]),
+            (Option "Enter Cell D." "You enter Cell D." [(MoveTo 22)]),
+            (Option "Exit the Cell Block." "You leave the Cell Block and enter a hallway." [(MoveTo 30)])
+            ]),
+
+
+    -- Rooms for Hallway
+        -- Hallway before unlock
+        (Room 30 "The hallway has 4 different doors. The first door in the hallway leads you back into the Cell Block where you woke up.\nThere is a door that is locked at the end of the hallway that is labeled as 'Laboratory'. It looks as though the door requires a pin code to unlock it.\nThe door across from the Cell Block is labeled 'Kitchen'. The last door in the hallway is labeled as 'Office'"
+            [
+            (Option "Enter the Cell Block." "You move into the Cell Block" [(MoveTo 20)]),
+            (Option "Enter the Kitchen." "You move into the kitchen." [(MoveTo 400)]),
+            (Option "Enter the Office." "You move into a large office." [(MoveTo 50)]),
+            (Option "Examine the Laboratory keypad." "You move closer to the laboratory door." [(MoveTo 31)])
+            ]),
+        -- Hallway after unlock
+        (Room 31 "You stand at the keypad for the laboratory. It looks like it takes 4 digits to unlock the door.\nIt looks like some electric wires are attached to the keypad. Entering the wrong code could cause an eletric shock."
+            [
+            (Option "Enter 1-2-3-4." "Nothing happens." [(MoveTo 31), (DHealth 10)]),
+            (Option "Enter 3-5-7-2." "Nothing happens." [(MoveTo 31), (DHealth 10)]),
+            (Option "Enter 3-5-4-4." "Nothing happens." [(MoveTo 31), (DHealth 10)]),
+            (Option "Enter 1-3-3-7." "Nothing happens." [(MoveTo 31), (DHealth 10)]),
+            (Option "Enter 4-3-7-8." "You hear the laboratory door unlock." [(MoveTo 32)]),
+            (Option "Enter 6-4-5-1." "Nothing happens." [(MoveTo 31), (DHealth 10)]),
+            (Option "Move away from the keypad." "You move away from the keypad and towards the centre of the hall." [(MoveTo 30)])
+            ]),
+        (Room 32 "You are standing infront of the laboratory door. It's unlocked."
+            [
+            (Option "Enter the laboratory. (Warning, you won't be able to return after entering.)" "You open the door and walk into the laboratory." [(MoveTo 60)]),
+            (Option "Move back towards the other rooms." "You move back to the centre of the hall way." [(MoveTo 30)])
+            ]),
+        (Room 33 "As you exit the kitchen, you see a large dog at the end of the hall growling at you."
+            [
+            (Option "Stand still." "You stand still and the dog charges you. It bites your arm. You lay down and play dead.\nEventually the dog leaves you alone, but you are hurt." [(MoveTo 30), (DHealth 30)]),
+            (Option "Run into the office." "You run towards the office and the dog chases you. You get inside the office, but as you enter, the dog bites your ankles.\nYou shut the door and eventually hear the dog leave." [(MoveTo 50), (DHealth 20)])
+            ]),
+
+
+    -- Rooms for Kitchen
+        -- Kitchen
+        (Room 400 "The kitchen is a large room with many different appliances, however it doesn't appear that any have power.\nYou see a fridge, oven, and clock. There is a large door at one end of the room that appears to be a walk in freezer."
+            [
+            (Option "Examine the fridge." "You open the fridge." [(MoveTo 401)]),
+            (Option "Examine the oven." "You open the oven." [(MoveTo 402)]),
+            (Option "Examine the clock." "You move closer to the clock" [(MoveTo 403)]),
+            (Option "Enter the walk in freezer." "You open the freezer and enter." [(MoveTo 404)]),
+            (Option "Exit the kitchen." "You leave the kitchen." [(MoveTo 30)])
+            ]),
+        -- Fridge with rotten food.
+        (Room 401 "Inside the fridge, you see alot of rotten food. It seems like it hasn't had any power for a while."
+            [
+            (Option "Take some rotten meat." "You take some rotten meat from the fridge."
+                [
+                (NewItem (Item "Rotten Meat" "You throw the rotten meat down the hall and the dog chases it giving you enough time to escape." 33 [(MoveTo 30), (RemoveItem "Rotten Meat")])),
+                (MoveTo 400)
+                ]),
+            (Option "Don't take anything." "You leave the fridge alone." [(MoveTo 400)])
+            ]),
+        -- Oven
+        (Room 402 "Inside the oven you see a strange box. It looks like it is connected to some cables."
+            [
+            (Option "Open the box." "You try to open the box, but it seems like there is something preventing it from opening." [(MoveTo 402)]),
+            (Option "Move back to the centre of the room." "You close the oven and move away." [(MoveTo 400)])
+            ]),
+        -- Clock
+        (Room 403 "The clock appears to have stopped working. It looks like it is stuck at 10:10 AM."
+            [
+            (Option "Move away from the clock." "You move back to the centre of the kitchen." [(MoveTo 400)])
+            ]),
+        -- In freezer, door closed
+        (Room 404 "The freezer is warm and dark it side. It seems like the power for the freezer is also not working.\nYou see a flashing light in the back of the freezer. As you enter, the door closes behind you."
+            [
+            (Option "Move towards the flashing light." "You move closer to the flashing light and see a few switches." [(MoveTo 406)]),
+            (Option "Feel around in the dark." "You feel around in the darkness of the freezer. You feel a metal object and pull on it.\nIt becomes dislodged and you now have a metal pipe. However, you cut your hand while grabbing it."
+                [
+                (NewItem (Item "Metal Pipe" "You use the metal pipe to prop open the freezer door." 405 [(RemoveItem "Metal Pipe"), (DRooms 405 414)])),
+                (MoveTo 405),
+                (DHealth 20)
+                ]),
+            (Option "Exit the freezer." "You open the door for the freezer and leave. You move away from the freezer and close the door." [(MoveTo 400)])
+            ]),
+        -- In freezer, have metal pipe
+        (Room 405 "The freezer is warm and dark it side. It seems like the power for the freezer is also not working.\nYou see a flashing light in the back of the freezer. As you enter, the door closes behind you."
+            [
+            (Option "Move towards the flashing light." "You move closer to the flashing light and see a few switches." [(MoveTo 406)]),
+            (Option "Exit the freezer." "You open the door for the freezer and leave. You move away from the freezer and close the door." [(MoveTo 400)])
+            ]),
+        -- 0 0 0 0 (door closed)
+        (Room 406 "You see a control panel with four different switches. All four of them appear to be off.\nIt looks like the fourth one is stuck and can't be changed."
+            [
+            (Option "Turn the first switch on." "You turn the first switch on." [(MoveTo 407)]),
+            (Option "Turn the second switch on." "You turn the second switch on." [(MoveTo 408)]),
+            (Option "Turn the third switch on." "You turn the third switch on." [(MoveTo 409)])
+            ]),
+        -- 1 0 0 0 (door closed)
+        (Room 407 "You are still looking at the control panel. The first switch is on, the second, third, and fourth are all off."
+            [
+            (Option "Turn the first switch off." "You turn the first switch off." [(MoveTo 406)]),
+            (Option "Turn the second switch on." "You turn the second switch on." [(MoveTo 410)]),
+            (Option "Turn the third switch on." "You turn the third switch on." [(MoveTo 411), (DHealth 40)])
+            ]),
+        -- 0 1 0 0 (door closed)
+        (Room 408 "You are still looking at the control panel. The second switch is on, the first, third, and fourth are all off."
+            [
+            (Option "Turn the first switch on." "You turn the first switch on." [(MoveTo 410)]),
+            (Option "Turn the second switch off." "You turn the second switch off." [(MoveTo 406)]),
+            (Option "Turn the third switch on." "You turn the third switch on." [(MoveTo 412)])
+            ]),
+        -- 0 0 1 0 (door closed)
+        (Room 409 "You are still looking at the control panel. The third switch is on, the first, second, and fourth are all off."
+            [
+            (Option "Turn the first switch on." "You turn the first switch on." [(MoveTo 411), (DHealth 40)]),
+            (Option "Turn the second switch on." "You turn the second switch on." [(MoveTo 412)]),
+            (Option "Turn the third switch off." "You turn the third switch off." [(MoveTo 406)])
+            ]),
+        -- 1 1 0 0 (door closed)
+        (Room 410 "You are still looking at the control panel. The first and second switch are on, the third and fourth switch are off."
+            [
+            (Option "Turn the first switch off." "You turn the first switch off." [(MoveTo 407)]),
+            (Option "Turn the second switch off." "You turn the second switch off." [(MoveTo 408)]),
+            (Option "Turn the third switch on." "You turn the third switch on." [(MoveTo 413)])
+            ]),
+        -- 1 0 1 0 (door closed) (correct solution)
+        (Room 411 "The first and third switch are on. The second and fourth switch are off.\nYou here a generator starting in the distance and the lights come on in the room.\nHowever, the door is shut and you begin to feel extremely cold. You feel weaker."
+            [
+            (Option "You see a strange metal object on the ground. Pick it up." "You pick up the metal object. It looks like it is some kind of magnetic key."
+                [(NewItem (Item "Magnetic Key" "You use the magnet to unlock the box." 402 [(DRooms 402 424), RemoveItem "Magnetic Key"])), (MoveTo 420), (DRooms 420 426)]),
+            (Option "Exit the freezer." "You open the door for the freezer and leave. You move away from the freezer and close the door." [(MoveTo 400), (DRooms 400 423)])
+            ]),
+        -- 0 1 1 0 (door closed)
+        (Room 412 "You are still looking at the control panel. The second and third switch are on, the first and fourth switch are off."
+            [
+            (Option "Turn the first switch on." "You turn the first switch on." [(MoveTo 413)]),
+            (Option "Turn the second switch off." "You turn the second switch off." [(MoveTo 409)]),
+            (Option "Turn the third switch off." "You turn the third switch off." [(MoveTo 408)])
+            ]),
+        -- 1 1 1 0 (door closed)
+        (Room 413 "You are still looking at the control panel. The first, second, and third switch are on, the fourth switch is off."
+            [
+            (Option "Turn the first switch off." "You turn the first switch off." [(MoveTo 412)]),
+            (Option "Turn the second switch off." "You turn the second switch off." [(MoveTo 411), (DHealth 40)]),
+            (Option "Turn the third switch off." "You turn the third switch off." [(MoveTo 410)])
+            ]),
+        -- In freezer, door propped open
+        (Room 414 "The freezer is warm and dark it side. It seems like the power for the freezer is also not working.\nYou see a flashing light in the back of the freezer. You have propped the door open using a metal bar."
+            [
+            (Option "Move towards the flashing light." "You move closer to the flashing light and see a few switches." [(MoveTo 415)])
+            ]),
+        -- 0 0 0 0 (door open)
+        (Room 415 "You see a control panel with four different switches. All four of them appear to be off.\nIt looks like the fourth one is stuck and can't be changed."
+            [
+            (Option "Turn the first switch on." "You turn the first switch on." [(MoveTo 416)]),
+            (Option "Turn the second switch on." "You turn the second switch on." [(MoveTo 417)]),
+            (Option "Turn the third switch on." "You turn the third switch on." [(MoveTo 418)])
+            ]),
+        -- 1 0 0 0 (door open)
+        (Room 416 "You are still looking at the control panel. The first switch is on, the second, third, and fourth are all off."
+            [
+            (Option "Turn the first switch off." "You turn the first switch off." [(MoveTo 415)]),
+            (Option "Turn the second switch on." "You turn the second switch on." [(MoveTo 419)]),
+            (Option "Turn the third switch on." "You turn the third switch on." [(MoveTo 420)])
+            ]),
+        -- 0 1 0 0 (door open)
+        (Room 417 "You are still looking at the control panel. The second switch is on, the first, third, and fourth are all off."
+            [
+            (Option "Turn the first switch on." "You turn the first switch on." [(MoveTo 419)]),
+            (Option "Turn the second switch off." "You turn the second switch off." [(MoveTo 415)]),
+            (Option "Turn the third switch on." "You turn the third switch on." [(MoveTo 421)])
+            ]),
+        -- 0 0 1 0 (door open)
+        (Room 418 "You are still looking at the control panel. The third switch is on, the first, second, and fourth are all off."
+            [
+            (Option "Turn the first switch on." "You turn the first switch on." [(MoveTo 420)]),
+            (Option "Turn the second switch on." "You turn the second switch on." [(MoveTo 421)]),
+            (Option "Turn the third switch off." "You turn the third switch off." [(MoveTo 415)])
+            ]),
+        -- 1 1 0 0 (door open)
+        (Room 419 "You are still looking at the control panel. The first and second switch are on, the third and fourth switch are off."
+            [
+            (Option "Turn the first switch off." "You turn the first switch off." [(MoveTo 417)]),
+            (Option "Turn the second switch off." "You turn the second switch off." [(MoveTo 416)]),
+            (Option "Turn the third switch on." "You turn the third switch on." [(MoveTo 422)])
+            ]),
+        -- 1 0 1 0 (door open) (correct solution)
+        (Room 420 "The first and third switch are on. The second and fourth switch are off.\nYou here a generator starting in the distance and the lights come on in the room."
+            [
+            (Option "You see a strange metal object on the ground. Pick it up." "You pick up the metal object. It looks like it is some kind of magnetic key."
+                [(NewItem (Item "Magnetic Key" "You use the magnet to unlock the box." 402 [(DRooms 402 424)])), (MoveTo 420), (DRooms 420 426)]),
+            (Option "Exit the freezer." "You leave the freezer. You move away from the freezer and close the door." [(MoveTo 400), (DRooms 400 423)])
+            ]),
+        -- 0 1 1 0 (door open)
+        (Room 421 "You are still looking at the control panel. The second and third switch are on, the first and fourth switch are off."
+            [
+            (Option "Turn the first switch on." "You turn the first switch on." [(MoveTo 422)]),
+            (Option "Turn the second switch off." "You turn the second switch off." [(MoveTo 418)]),
+            (Option "Turn the third switch off." "You turn the third switch off." [(MoveTo 417)])
+            ]),
+        -- 1 1 1 0 (door open)
+        (Room 422 "You are still looking at the control panel. The first, second, and third switch are on, the fourth switch is off."
+            [
+            (Option "Turn the first switch off." "You turn the first switch off." [(MoveTo 421)]),
+            (Option "Turn the second switch off." "You turn the second switch off." [(MoveTo 420)]),
+            (Option "Turn the third switch off." "You turn the third switch off." [(MoveTo 419)])
+            ]),
+        -- Kitchen with power
+        (Room 423 "The kitchen is a large room with many different appliances, and it has power now.\nYou see a fridge, oven, and clock. There is a large door at one end of the room that appears to be a walk in freezer."
+            [
+            (Option "Examine the fridge." "You open the fridge." [(MoveTo 425)]),
+            (Option "Examine the oven." "You open the oven." [(MoveTo 402)]),
+            (Option "Examine the clock." "You move closer to the clock. It's moving again. The time is now 10:12 AM" [(MoveTo 400)]),
+            (Option "Enter the walk in freezer." "You open the freezer and enter." [(MoveTo 420)]),
+            (Option "Exit the kitchen." "You leave the kitchen." [(MoveTo 33)])
+            ]),
+        -- Box in the oven
+        (Room 424 "Inside the box you find a pistol. This could come in handy."
+            [
+            (Option "Take the pistol." "You pick up the pistol and put it in your pocket. You close the oven and move away."
+                [(NewItem (Item "Pistol" "You use the pistol to intimidate the doctor." 60 [(DRooms 60 61)])), (MoveTo 400), (DRooms 424 427)]),
+            (Option "Leave the pistol alone." "You close the box and move away." [(MoveTo 400)])
+            ]),
+        -- Fridge after power
+        (Room 425 "Inside the fridge, you see alot of rotten food. It seems like it hasn't had any power for a while."
+            [
+            (Option "Take some rotten meat." "You take some rotten meat from the fridge."
+                [
+                (NewItem (Item "Rotten Meat" "You throw the rotten meat down the hall and the dog chases it giving you enough time to escape." 33 [(DRooms 33 30), (RemoveItem "Rotten Meat")])),
+                (MoveTo 400)
+                ]),
+            (Option "Don't take anything." "You leave the fridge alone." [(MoveTo 400)])
+            ]),
+        (Room 426 "The first and third switch are on. The second and fourth switch are off.\nYou here a generator starting in the distance and the lights come on in the room."
+            [
+            (Option "Exit the freezer." "You leave the freezer. You move away from the freezer and close the door." [(MoveTo 400), (DRooms 400 423)])
+            ]),
+        (Room 427 "There is nothing else inside the box."
+            [
+            (Option "Move away from the oven." "You move back towards the centre of the kitchen." [(MoveTo 400)])
+            ]),
+
+
+    -- Rooms for the Office
+        -- Office after entering
+        (Room 50 "The office is full of books on surgery, certificates of achievement, and paintings on the wall.\nIt seems that who evers office this is, is quite well known.\nThere is a large desk in the room with many drawers and a bookshelf along the back wall."
+            [
+            (Option "Examine the certificates." "You look at the certificates hanging on the wall. They all appear to be for outstanding work in the field of medacine awarded to 'Dr. Stephen Goldstein'." [(MoveTo 50)]),
+            (Option "Open the top drawer of the desk." "As you open the top drawer, you hear the door to the room lock. You hear a voice come through speakers on the bookshelf:\n\n'I see you have found your way out of the cell's. Unfortunately my servent cannot be trusted with locking prisoners up properly.\nLuckily for me, you are now stuck in my office with no way out. My servent will see you soon, try to stay awake.'" [(MoveTo 51)]),
+            (Option "Open the bottom drawer of the desk." "When you open the drawer, you hear a clicking noise coming from within the desk." [(MoveTo 52)]),
+            (Option "Examine the books on the bookshelf." "The wall is full of books, but you notice a few that are used more than others.\n'The House of God' by Samuel S.,\n'Cutting for Stone' by Abraham V.,\n'Anatomy: Four Years and 378 Bodies' by Stephen G.,\nand 'Textbook of Pain' by David W. all seem to stand out." [(MoveTo 50)]),
+            (Option "Examine the paintings on the wall." "There are three large paintings hung on the wall.\nThe first is a painting by Mark Rothko named 'Untitled'.\nThe second painting on the wall is 'Sunflowers' by Van Gogh.\nThe last painting is a painting of what appears to be an ocean by an unknown artist." [(MoveTo 50)]),
+            (Option "Exit the office" "You leave the office and enter the hallway." [(MoveTo 30)])
+            ]),
+        -- Office with gas
+        (Room 51 "The office begins to fill with a strange gas from the vents.\nIt would be best to leave the office before the room is full."
+            [
+            (Option "Examine the certificates." "You look at the certificates hanging on the wall. They all appear to be for outstanding work in the field of medacine awarded to 'Dr. Stephen Goldstein'." [(MoveTo 51), (DHealth 10)]),
+            (Option "Open the top drawer of the desk." "You open the top drawer, but there is nothing inside." [(MoveTo 51), (DHealth 10)]),
+            (Option "Open the bottom drawer of the desk." "When you open the drawer, you hear a clicking noise coming from within the desk." [(MoveTo 55), (DHealth 10)]),
+            (Option "Examine the books on the bookself." "The wall is full of books, but you notice a few that are used more than others.\n'The House of God' by Samuel S.,\n'Cutting for Stone' by Abraham V.,\n'Anatomy: Four Years and 378 Bodies' by Stephen G.,\nand 'Textbook of Pain' by David W. all seem to stand out." [(MoveTo 51), (DHealth 10)]),
+            (Option "Examine the paintings on the wall." "There are three large paintings hung on the wall.\nThe first is a painting by Mark Rothko named 'Untitled'.\nThe second painting on the wall is 'Sunflowers' by Van Gogh.\nThe last painting is a painting of what appears to be an ocean by an unknown artist." [(MoveTo 51), (DHealth 10)])
+            ]),
+        -- Bottom drawer (correct solution is red, yellow, blue. Green doesn't matter)
+        (Room 52 "You look into the bottom drawer and there appears to be some wires.\nThere is a green, red, blue, and yellow set of wires. It might be best to reconnect them."
+            [
+            (Option "Reconnect green wires." "Nothing appears to change." [(MoveTo 52)]),
+            (Option "Reconnect red wires." "You hear a click come from the desk. It sounds like the right wire." [(MoveTo 53)]),
+            (Option "Reconnect blue wires." "Nothing appears to change." [(MoveTo 52)]),
+            (Option "Reconnect yellow wires." "Nothing appears to change." [(MoveTo 52)]),
+            (Option "Leave the wires alone." "You move away from the desk." [(MoveTo 50)])
+            ]),
+        (Room 53 "You look into the bottom drawer and there appears to be some wires.\nThere is a green, red, blue, and yellow set of wires. It might be best to reconnect them."
+            [
+            (Option "Reconnect green wires." "Nothing appears to change." [(MoveTo 53)]),
+            (Option "Reconnect blue wires." "Nothing appears to change." [(MoveTo 53)]),
+            (Option "Reconnect yellow wires." "You hear a click come from the desk. Sounds like the correct one." [(MoveTo 54)]),
+            (Option "Leave the wires alone." "You move away from the desk." [(MoveTo 50)])
+            ]),
+        (Room 54 "You look into the bottom drawer and there appears to be some wires.\nThere is a green, red, blue, and yellow set of wires. It might be best to reconnect them."
+            [
+            (Option "Reconnect green wires." "Nothing appears to change." [(MoveTo 54)]),
+            (Option "Reconnect blue wires." "You hear the fan in the vents stop. A hidden drawer in the desk opens to reveal a room key."
+                [
+                (MoveTo 58),
+                (NewItem (Item "Office Key" "You use the key to unlock the door to the office." 58 [(DRooms 58 59)]))
+                ]),
+            (Option "Leave the wires alone." "You move away from the desk." [(MoveTo 50)])
+            ]),
+        -- Bottom drawer with gas (correct solution is red, yellow, blue. Green doesn't matter)
+        (Room 55 "You look into the bottom drawer and there appears to be some wires.\nThere is a green, red, blue, and yellow set of wires. It might be best to reconnect them."
+            [
+            (Option "Reconnect green wires." "Nothing appears to change." [(MoveTo 55), (DHealth 10)]),
+            (Option "Reconnect red wires." "You hear the fan in the vents begin to slow. Sounds like the right wire." [(MoveTo 56), (DHealth 10)]),
+            (Option "Reconnect blue wires." "Nothing appears to change." [(MoveTo 55), (DHealth 10)]),
+            (Option "Reconnect yellow wires." "Nothing appears to change." [(MoveTo 55), (DHealth 10)]),
+            (Option "Leave the wires alone." "You move away from the desk." [(MoveTo 51), (DHealth 10)])
+            ]),
+        (Room 56 "You look into the bottom drawer and there appears to be some wires.\nThere is a green, red, blue, and yellow set of wires. It might be best to reconnect them."
+            [
+            (Option "Reconnect green wires." "Nothing appears to change." [(MoveTo 56), (DHealth 10)]),
+            (Option "Reconnect blue wires." "Nothing appears to change." [(MoveTo 56), (DHealth 10)]),
+            (Option "Reconnect yellow wires." "You hear the fan in the vents begin to slow. Sounds like the correct one." [(MoveTo 57), (DHealth 10)]),
+            (Option "Leave the wires alone." "You move away from the desk." [(MoveTo 51), (DHealth 10)])
+            ]),
+        (Room 57 "You look into the bottom drawer and there appears to be some wires.\nThere is a green, red, blue, and yellow set of wires. It might be best to reconnect them."
+            [
+            (Option "Reconnect green wires." "Nothing appears to change." [(MoveTo 54), (DHealth 10)]),
+            (Option "Reconnect blue wires." "You hear the fan in the vents stop. A hidden drawer in the desk opens to reveal a room key."
+                [
+                (MoveTo 58),
+                (NewItem (Item "Office Key" "You use the key to unlock the door to the office." 58 [(DRooms 58 59)]))
+                ]),
+            (Option "Leave the wires alone." "You move away from the desk." [(MoveTo 50), (DHealth 10)])
+            ]),
+        -- Solution has been found and vent shut off.
+        (Room 58 "There is no longer anything coming from the ventilation system and the door to the room is locked.\nThe office is full of books on surgery, certificates of achievement, and paintings on the wall.\nIt seems that who evers office this is, is quite well known.\nThere is a large desk in the room with many drawers and a bookshelf along the back wall."
+            [
+            (Option "Examine the certificates." "You look at the certificates hanging on the wall. They all appear to be for outstanding work in the field of medacine awarded to 'Dr. Stephen Goldstein'." [(MoveTo 58)]),
+            (Option "Open the top drawer of the desk." "You open the drawer, but it is empty and nothing happens." [(MoveTo 58)]),
+            (Option "Open the bottom drawer of the desk." "The wires inside are connected, but besides that, there is nothing else in the drawer." [(MoveTo 58)]),
+            (Option "Examine the books on the bookshelf." "The wall is full of books, but you notice a few that are used more than others.\n'The House of God' by Samuel S.,\n'Cutting for Stone' by Abraham V.,\n'Anatomy: Four Years and 378 Bodies' by Stephen G.,\nand 'Textbook of Pain' by David W. all seem to stand out." [(MoveTo 58)]),
+            (Option "Examine the paintings on the wall." "There are three large paintings hung on the wall.\nThe first is a painting by Mark Rothko named 'Untitled'.\nThe second painting on the wall is 'Sunflowers' by Van Gogh.\nThe last painting is a painting of what appears to be an ocean by an unknown artist." [(MoveTo 58)])
+            ]),
+        -- Office solution found and door unlocked.
+        (Room 59 "The door to the office is now unlocked. The ventilation system is still shut off.\nThe office is full of books on surgery, certificates of achievement, and paintings on the wall.\nIt seems that who evers office this is, is quite well known.\nThere is a large desk in the room with many drawers and a bookshelf along the back wall."
+            [
+            (Option "Examine the certificates." "You look at the certificates hanging on the wall. They all appear to be for outstanding work in the field of medacine awarded to 'Dr. Stephen Goldstein'." [(MoveTo 58)]),
+            (Option "Open the top drawer of the desk." "You open the drawer, but it is empty and nothing happens." [(MoveTo 58)]),
+            (Option "Open the bottom drawer of the desk." "The wires inside are connected, but besides that, there is nothing else in the drawer." [(MoveTo 58)]),
+            (Option "Examine the books on the bookshelf." "The wall is full of books, but you notice a few that are used more than others.\n'The House of God' by Samuel S.,\n'Cutting for Stone' by Abraham V.,\n'Anatomy: Four Years and 378 Bodies' by Stephen G.,\nand 'Textbook of Pain' by David W. all seem to stand out." [(MoveTo 58)]),
+            (Option "Examine the paintings on the wall." "There are three large paintings hung on the wall.\nThe first is a painting by Mark Rothko named 'Untitled'.\nThe second painting on the wall is 'Sunflowers' by Van Gogh.\nThe last painting is a painting of what appears to be an ocean by an unknown artist." [(MoveTo 58)]),
+            (Option "Exit the office." "You leave the office and enter the hallway." [(MoveTo 30)])
+            ]),
+
+
+    -- Start of Laboratory rooms
+        -- Laboratory entrance
+        (Room 60 "As you enter the laboratory, you hear the door close behind you and lock.\nIn front of you, you see who you assume to be Dr. Goldstein.\n\n'I'm suprised you've made it this far.' he says. 'Unfortunately, there isn't any where else for you to go.'\n\nYou look around the room and see a door at then end of the room. It looks like it's the only way out now."
+            [
+            (Option "Run to the door." "You spring for the door. However, once you get to it, you realize it's locked.\nThe doctor grabs you from behind and chains you to the opertaion table. You slowly begin to faint as the doctor puts a face mask on you." [(DHealth 100)]),
+            (Option "Attack the doctor." "You charge the doctor and tackle him to the ground.\nHe stabs you in the leg with something sharp, but you are able to knock him out and retrieve a key."
+                [
+                (NewItem (Item "Laboratory Key" "You use the Laboratory Key to unlock the door at the back of the room.\nYou exit the door and see the sun. You are outside and are able to escape." 62 [(DRooms 62 63)])),
+                (MoveTo 62),
+                (DHealth 70)
+                ]),
+            (Option "Obey the doctor." "You raise your hands and listen to what the doctor has to say.\nHe convinces you to lay on the operation table. As you lay down, he places a face mask on you and you begin to faint." [(DHealth 100)])
+            ]),
+        (Room 61 "The doctor raises his hand.\n\n'Where did you find that?! Please don't shoot, I'll let you leave!'\n\nHe presents you with the key to the door to leave."
+            [
+            (Option "Take the key." "You take the key from the doctors hand and knock him out."
+                [
+                (NewItem (Item "Laboratory Key" "You use the Laboratory Key to unlock the door at the back of the room.\nYou exit the door and see the sun. You are outside and are able to escape." 62 [(DRooms 62 63)])),
+                (MoveTo 62)
+                ])
+            ]),
+        (Room 62 "The doctor is on the floor. The door at the back of the room is still locked, but you now have the key to unlock it."
+            [
+            (Option "Do nothing." "You decide to stand still and do nothing." [(MoveTo 62)])
+            ]),
+        (Room 63 "You are finally free!\nCongrats on escaping!"
+            [
+            (Option "Restart." "" [(DHealth 100)])
+            ])
+  ]
+
+enterDungeon = loopDungeon d1 
+
+data Dungeon = Dungeon Eli [Room]            -- "Eli" is the player's avatar
+getEli (Dungeon e _) = e
+allRooms (Dungeon _ rs) = rs
+
+data Eli = Eli Int Int [Item]                -- first int: position, second int: health
+curIndex (Eli i _ _) = i
+curHealth (Eli _ h _) = h
+curInven (Eli _ _ is) = is
+
+data Item = 
+     Item [Char] [Char] Int [Effect] -- An item has:
+itemName (Item n c ui es) = n        --   A name
+itemCons (Item n c ui es) = c        --   Description of what happens when it's used
+itemUseI (Item n c ui es) = ui       --   The room index it can be used in, 0 means it can be used anywhere
+itemEffs (Item n c ui es) = es       --   List of effects of using the item
+
+putItems [] = putStrLn "You have no items in your inventory. (0: confirm)"
+putItems (h:t) = do putStrLn "You also have the following:" 
+                    putItems_1 1 (h:t)
+putItems_1 _ [] = putStrLn "Use any items? (0: use nothing)"
+putItems_1 n (h:t) = do
+  putStrLn (show n ++ ": " ++ itemName h)
+  putItems_1 (n+1) t
+
+data Room = Room Int [Char] [Option]         -- room has: index, description, options in the room
+rmIndex (Room i _ _) = i
+rmDesc (Room _ d _) = d
+rmOpts (Room _ _ os) = os
+
+data Option = Option [Char] [Char] [Effect]    -- option has: 
+optDesc (Option d _ _) = d     --   description of the action,
+optCons (Option _ c _) = c     --   description of the consequence,
+optEffs (Option _ _ es) = es   --   a list of effects
+
+opt0 = Option "Check self." "" []  -- special option to examine the player's avatar
+
+putOpts (h:t) = putOpts_1 0 (h:t)
+putOpts_1 _ [] = return()
+putOpts_1 n (h:t) = do
+  putStrLn (show n ++ ": " ++ optDesc h)
+  putOpts_1 (n+1) t
+
+data Effect = DHealth Int       -- changes Eli's health by specified amount
+            | DRooms Int Int    -- remove the first indexed room, then change the index of the second to that of the first
+            | NewItem Item      -- add the item to Eli's inventory
+            | RemoveItem [Char] -- remove the named item from Eli's inventory
+            | MoveTo Int        -- move the room as specified by the index
+
+applyEffects d [] = d
+applyEffects d (h:t) = do
+  let eli = getEli d
+  let rooms = allRooms d
+  case h of
+    DHealth x -> applyEffects (Dungeon (Eli (curIndex eli) (curHealth eli - x) (curInven eli)) rooms) t
+    DRooms a b -> applyEffects (Dungeon eli
+                  (map (\x -> if (rmIndex x == b) then (Room a (rmDesc x) (rmOpts x)) else x) (remove1Elem (\x -> rmIndex x == a) rooms))) t
+    NewItem i -> applyEffects (Dungeon (Eli (curIndex eli) (curHealth eli) (i:(curInven eli))) rooms) t
+    RemoveItem n -> applyEffects (Dungeon (Eli (curIndex eli) (curHealth eli) (remove1Elem (\x -> itemName x == n) (curInven eli))) rooms) t
+    MoveTo i -> applyEffects (Dungeon (Eli i (curHealth eli) (curInven eli)) rooms) t
+
+loopDungeon d = do -- *** Main Loop ***
+  let eli = getEli d
+  if (curHealth eli > 0) && (curIndex eli /= 0) 
+  then do 
+       let curRm = findElem (\rm -> (rmIndex rm) == (curIndex eli)) (allRooms d)
+       let opts = rmOpts curRm
+       putStrLn (rmDesc curRm ++ "\n\nWhat would you like to do?")
+       putOpts (opt0:(rmOpts curRm))
+       choice <- lp_reqIntR 0 (length opts)
+       putStrLn ("\n")
+       if (choice==0) 
+       then do
+            putStrLn ("You have "++show (curHealth eli)++" HP;")
+            let items = curInven eli
+            putItems items
+            itemChoice <- lp_reqIntR 0 (length items)
+            putStrLn("\n")
+            if (itemChoice == 0) 
+            then (loopDungeon d)
+            else do
+                 let chosenItem = items !! (itemChoice-1)
+                 if (itemUseI chosenItem /= 0) && (itemUseI chosenItem /= curIndex eli)
+                 then do
+                      putStrLn "You cannot use this item here!"
+                      loopDungeon d
+                 else do
+                      putStrLn (itemCons chosenItem)
+                      loopDungeon (applyEffects d (itemEffs chosenItem))
+            
+       else do
+            let chosenOpt = opts !! (choice-1)
+            putStrLn (optCons chosenOpt)
+            loopDungeon (applyEffects d (optEffs chosenOpt))
+  else putStrLn "Your health has declined. You feel dizzy and faint.\nGame Over."
+
